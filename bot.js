@@ -1,12 +1,12 @@
 const { Telegraf, Markup } = require('telegraf');
 const axios = require('axios');
 const http = require('http');
-const mammoth = require('mammoth'); // Failii Word (.docx) dubbisuuf kan itti dabalame
+const mammoth = require('mammoth');
 
 // Your Telegram Bot Token
 const BOT_TOKEN = '8624502955:AAEFg7RM8Nrz_--TU1q9gBtmAbX_v-4CuQc';
 const bot = new Telegraf(BOT_TOKEN, {
-    handlerTimeout: 90000
+    handlerTimeout: 120000 // Yeroo dabalataa eeguuf
 });
 
 // List of languages
@@ -25,24 +25,50 @@ const languages = {
 
 const messageSessions = {};
 
-// Translation Function
+// Barreeffama dheeraa kutaa kutaatti addaan kutuuf (Split text into chunks)
+function splitText(text, maxLength = 1500) {
+    const chunks = [];
+    let currentChunk = "";
+    const sentences = text.split(/(?<=[.!?])\s+/);
+
+    for (const sentence of sentences) {
+        if ((currentChunk + sentence).length > maxLength) {
+            chunks.push(currentChunk.trim());
+            currentChunk = sentence + " ";
+        } else {
+            currentChunk += sentence + " ";
+        }
+    }
+    if (currentChunk.trim()) {
+        chunks.push(currentChunk.trim());
+    }
+    return chunks;
+}
+
+// Translation Function (Kutaa hunda gargar hiiku)
 async function translateText(text, toLang) {
     try {
-        const url = `https://translate.googleapis.com/translate_a/single?client=gtx&sl=auto&tl=${toLang}&dt=t&q=${encodeURIComponent(text)}`;
-        const response = await axios.get(url);
-        
-        let translatedText = "";
-        if (response.data && response.data[0]) {
-            response.data[0].forEach(sentence => {
-                if (sentence[0]) {
-                    translatedText += sentence[0];
-                }
-            });
+        const chunks = splitText(text);
+        let finalTranslatedText = "";
+
+        for (const chunk of chunks) {
+            const url = `https://translate.googleapis.com/translate_a/single?client=gtx&sl=auto&tl=${toLang}&dt=t&q=${encodeURIComponent(chunk)}`;
+            const response = await axios.get(url);
+            
+            if (response.data && response.data[0]) {
+                response.data[0].forEach(sentence => {
+                    if (sentence[0]) {
+                        finalTranslatedText += sentence[0];
+                    }
+                });
+            }
+            // Daqiiqaa muraasa eeguu (Google akka nu hin block-ineef)
+            await new Promise(resolve => setTimeout(resolve, 300));
         }
-        return translatedText || "No translation found.";
+        return finalTranslatedText || "No translation found.";
     } catch (error) {
         console.error("Translation Error:", error.message);
-        return "Translation failed. Please try again later.";
+        return "Translation failed due to heavy size or network. Please try with smaller text.";
     }
 }
 
@@ -90,19 +116,16 @@ bot.on('document', async (ctx) => {
 
         let fileContent = "";
 
-        // 1. Yoo failiin sun .txt ta'e
         if (doc.mime_type === 'text/plain' || fileName.endsWith('.txt')) {
             const fileResponse = await axios.get(fileLink.href);
             fileContent = fileResponse.data.toString();
         } 
-        // 2. Yoo failiin sun Word Document (.docx) ta'e
         else if (fileName.endsWith('.docx')) {
             const fileResponse = await axios.get(fileLink.href, { responseType: 'arraybuffer' });
             const buffer = Buffer.from(fileResponse.data);
             const result = await mammoth.extractRawText({ buffer: buffer });
             fileContent = result.value;
         } 
-        // 3. Gosa failii biraa yoo ta'e
         else {
             return ctx.reply("Please upload valid '.txt' or '.docx' (Word) files only.");
         }
@@ -138,7 +161,13 @@ bot.action(/^lang_(.+)$/, async (ctx) => {
         await ctx.editMessageText(`Translating content to ${targetLangName}... ⏳`);
 
         const translatedResult = await translateText(savedContent, targetLang);
-        await ctx.reply(`📝 **Translation (${targetLangName}):**\n\n${translatedResult}`);
+        
+        // Deebiin dhufe barreeffama dheeraa yoo ta'e kutaatti daddabarsanii erguuf
+        const responseChunks = splitText(translatedResult, 3500);
+        for (const chunk of responseChunks) {
+            await ctx.reply(`📝 **Translation (${targetLangName}):**\n\n${chunk}`);
+        }
+        
         delete messageSessions[sessionKey];
     } catch (e) {
         console.error("Button action error:", e.message);
@@ -156,7 +185,7 @@ bot.launch({
 })
 .then(() => {
     console.log("=========================================");
-    console.log("🚀 Bot is running smoothly with Word Document support!");
+    console.log("🚀 Bot is running smoothly with Word Document and Chunk support!");
     console.log("=========================================");
 })
 .catch((error) => {
