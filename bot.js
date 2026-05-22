@@ -6,7 +6,7 @@ const mammoth = require('mammoth');
 // Your Telegram Bot Token
 const BOT_TOKEN = '8624502955:AAEFg7RM8Nrz_--TU1q9gBtmAbX_v-4CuQc';
 const bot = new Telegraf(BOT_TOKEN, {
-    handlerTimeout: 120000 // Yeroo dabalataa eeguuf
+    handlerTimeout: 120000
 });
 
 // List of languages
@@ -25,50 +25,45 @@ const languages = {
 
 const messageSessions = {};
 
-// Barreeffama dheeraa kutaa kutaatti addaan kutuuf (Split text into chunks)
-function splitText(text, maxLength = 1500) {
+// Barreeffama bifa salphaan amansiisaa ta'een addaan kutuuf (Fixes 400 Error)
+function splitTextIntoSafeChunks(text, chunkSize = 1000) {
     const chunks = [];
-    let currentChunk = "";
-    const sentences = text.split(/(?<=[.!?])\s+/);
-
-    for (const sentence of sentences) {
-        if ((currentChunk + sentence).length > maxLength) {
-            chunks.push(currentChunk.trim());
-            currentChunk = sentence + " ";
-        } else {
-            currentChunk += sentence + " ";
-        }
-    }
-    if (currentChunk.trim()) {
-        chunks.push(currentChunk.trim());
+    let i = 0;
+    while (i < text.length) {
+        chunks.push(text.substring(i, i + chunkSize));
+        i += chunkSize;
     }
     return chunks;
 }
 
-// Translation Function (Kutaa hunda gargar hiiku)
+// Translation Function
 async function translateText(text, toLang) {
     try {
-        const chunks = splitText(text);
+        // Mallattoolee bitaa ta'an qulqulleessuuf
+        const cleanedText = text.replace(/[\r\n]+/g, ' ').trim();
+        const chunks = splitTextIntoSafeChunks(cleanedText, 1000);
         let finalTranslatedText = "";
 
         for (const chunk of chunks) {
+            if (!chunk.trim()) continue;
+
             const url = `https://translate.googleapis.com/translate_a/single?client=gtx&sl=auto&tl=${toLang}&dt=t&q=${encodeURIComponent(chunk)}`;
-            const response = await axios.get(url);
+            const response = await axios.get(url, { timeout: 10000 });
             
             if (response.data && response.data[0]) {
                 response.data[0].forEach(sentence => {
                     if (sentence[0]) {
-                        finalTranslatedText += sentence[0];
+                        finalTranslatedText += sentence[0] + " ";
                     }
                 });
             }
-            // Daqiiqaa muraasa eeguu (Google akka nu hin block-ineef)
-            await new Promise(resolve => setTimeout(resolve, 300));
+            // Google akka nu hin block-ineef seconds muraasa eeguu
+            await new Promise(resolve => setTimeout(resolve, 500));
         }
-        return finalTranslatedText || "No translation found.";
+        return finalTranslatedText.trim() || "No translation found.";
     } catch (error) {
-        console.error("Translation Error:", error.message);
-        return "Translation failed due to heavy size or network. Please try with smaller text.";
+        console.error("Translation Error Details:", error.response ? error.response.status : error.message);
+        return "Translation failed due to formatting or size. Please try with smaller text.";
     }
 }
 
@@ -162,8 +157,8 @@ bot.action(/^lang_(.+)$/, async (ctx) => {
 
         const translatedResult = await translateText(savedContent, targetLang);
         
-        // Deebiin dhufe barreeffama dheeraa yoo ta'e kutaatti daddabarsanii erguuf
-        const responseChunks = splitText(translatedResult, 3500);
+        // Telegram irratti ergaa dheeraa kutaatti qoodanii erguuf
+        const responseChunks = splitTextIntoSafeChunks(translatedResult, 3500);
         for (const chunk of responseChunks) {
             await ctx.reply(`📝 **Translation (${targetLangName}):**\n\n${chunk}`);
         }
@@ -185,7 +180,7 @@ bot.launch({
 })
 .then(() => {
     console.log("=========================================");
-    console.log("🚀 Bot is running smoothly with Word Document and Chunk support!");
+    console.log("🚀 Bot is running smoothly with Safe Chunking!");
     console.log("=========================================");
 })
 .catch((error) => {
