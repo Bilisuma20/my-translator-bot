@@ -1,6 +1,7 @@
 const { Telegraf, Markup } = require('telegraf');
 const axios = require('axios');
-const http = require('http'); // Render akka callisuuf kan itti dabalame
+const http = require('http');
+const mammoth = require('mammoth'); // Failii Word (.docx) dubbisuuf kan itti dabalame
 
 // Your Telegram Bot Token
 const BOT_TOKEN = '8624502955:AAEFg7RM8Nrz_--TU1q9gBtmAbX_v-4CuQc';
@@ -8,7 +9,7 @@ const bot = new Telegraf(BOT_TOKEN, {
     handlerTimeout: 90000
 });
 
-// List of languages from your HTML
+// List of languages
 const languages = {
     'af': 'Afrikaans', 'sq': 'Albanian', 'am': 'Amharic', 'ar': 'Arabic', 
     'bn': 'Bengali', 'zh-CN': 'Chinese (Simp)', 'zh-TW': 'Chinese (Trad)', 
@@ -60,7 +61,7 @@ function getLanguageButtons() {
 
 bot.start(async (ctx) => {
     try {
-        await ctx.reply("Welcome! Send me any text or upload a '.txt' file, and I will show you buttons to choose the target language.");
+        await ctx.reply("Welcome! Send me any text or upload a '.txt' or '.docx' (Word) file, and I will show you buttons to choose the target language.");
     } catch (e) {
         console.error("Start command error:", e.message);
     }
@@ -82,26 +83,41 @@ bot.on('document', async (ctx) => {
     try {
         const chatId = ctx.chat.id;
         const doc = ctx.message.document;
+        const fileName = doc.file_name.toLowerCase();
 
-        if (doc.mime_type === 'text/plain' || doc.file_name.endsWith('.txt')) {
-            await ctx.reply("Reading your file... ⏳");
-            const fileLink = await ctx.telegram.getFileLink(doc.file_id);
+        await ctx.reply("Reading your file... ⏳");
+        const fileLink = await ctx.telegram.getFileLink(doc.file_id);
+
+        let fileContent = "";
+
+        // 1. Yoo failiin sun .txt ta'e
+        if (doc.mime_type === 'text/plain' || fileName.endsWith('.txt')) {
             const fileResponse = await axios.get(fileLink.href);
-            const fileContent = fileResponse.data;
-
-            if (!fileContent.toString().trim()) {
-                return ctx.reply("Your file is empty!");
-            }
-
-            const sentMessage = await ctx.reply(`File "${doc.file_name}" received successfully!\n\nPlease select the language you want to translate to:`, getLanguageButtons());
-            const sessionKey = `${chatId}_${sentMessage.message_id}`;
-            messageSessions[sessionKey] = fileContent.toString();
-        } else {
-            ctx.reply("Please upload a valid '.txt' file only.");
+            fileContent = fileResponse.data.toString();
+        } 
+        // 2. Yoo failiin sun Word Document (.docx) ta'e
+        else if (fileName.endsWith('.docx')) {
+            const fileResponse = await axios.get(fileLink.href, { responseType: 'arraybuffer' });
+            const buffer = Buffer.from(fileResponse.data);
+            const result = await mammoth.extractRawText({ buffer: buffer });
+            fileContent = result.value;
+        } 
+        // 3. Gosa failii biraa yoo ta'e
+        else {
+            return ctx.reply("Please upload valid '.txt' or '.docx' (Word) files only.");
         }
+
+        if (!fileContent.trim()) {
+            return ctx.reply("Your file appears to be empty!");
+        }
+
+        const sentMessage = await ctx.reply(`File "${doc.file_name}" received successfully!\n\nPlease select the language you want to translate to:`, getLanguageButtons());
+        const sessionKey = `${chatId}_${sentMessage.message_id}`;
+        messageSessions[sessionKey] = fileContent;
+
     } catch (e) {
         console.error("Document handling error:", e.message);
-        ctx.reply("An error occurred while reading the file.");
+        ctx.reply("An error occurred while reading the file. Make sure it's a valid text or docx file.");
     }
 });
 
@@ -140,15 +156,14 @@ bot.launch({
 })
 .then(() => {
     console.log("=========================================");
-    console.log("🚀 Bot is running smoothly for everyone!");
+    console.log("🚀 Bot is running smoothly with Word Document support!");
     console.log("=========================================");
 })
 .catch((error) => {
     console.error("❌ Failed to start the bot:", error.message);
 });
 
-// --- DUMMY SERVER FOR RENDER PORT BINDING ---
-// Koodiin kun Render port akka argatu gochuun scan error sana dhowwa
+// DUMMY SERVER FOR RENDER PORT BINDING
 const PORT = process.env.PORT || 3000;
 http.createServer((req, res) => {
     res.writeHead(200, { 'Content-Type': 'text/plain' });
