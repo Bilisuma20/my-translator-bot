@@ -20,12 +20,12 @@ const languages = {
     'om': 'Oromo', 'fa': 'Persian', 'pl': 'Polish', 'pt': 'Portuguese', 
     'ro': 'Romanian', 'ru': 'Russian', 'es': 'Spanish', 'sw': 'Swahili', 
     'sv': 'Swedish', 'th': 'Thai', 'tr': 'Turkish', 'uk': 'Ukrainian', 
-    'vi': 'Vietnamese'
+    'vi': 'Violetnamese'
 };
 
 const messageSessions = {};
 
-// Barreeffama bifa salphaan amansiisaa ta'een addaan kutuuf (Fixes 400 Error)
+// Barreeffama bifa salphaan amansiisaa ta'een addaan kutuuf
 function splitTextIntoSafeChunks(text, chunkSize = 1000) {
     const chunks = [];
     let i = 0;
@@ -39,7 +39,6 @@ function splitTextIntoSafeChunks(text, chunkSize = 1000) {
 // Translation Function
 async function translateText(text, toLang) {
     try {
-        // Mallattoolee bitaa ta'an qulqulleessuuf
         const cleanedText = text.replace(/[\r\n]+/g, ' ').trim();
         const chunks = splitTextIntoSafeChunks(cleanedText, 1000);
         let finalTranslatedText = "";
@@ -57,7 +56,6 @@ async function translateText(text, toLang) {
                     }
                 });
             }
-            // Google akka nu hin block-ineef seconds muraasa eeguu
             await new Promise(resolve => setTimeout(resolve, 500));
         }
         return finalTranslatedText.trim() || "No translation found.";
@@ -157,7 +155,6 @@ bot.action(/^lang_(.+)$/, async (ctx) => {
 
         const translatedResult = await translateText(savedContent, targetLang);
         
-        // Telegram irratti ergaa dheeraa kutaatti qoodanii erguuf
         const responseChunks = splitTextIntoSafeChunks(translatedResult, 3500);
         for (const chunk of responseChunks) {
             await ctx.reply(`📝 **Translation (${targetLangName}):**\n\n${chunk}`);
@@ -173,27 +170,25 @@ bot.catch((err, ctx) => {
     console.error(`Bot encountered an error for ${ctx.updateType}:`, err.message);
 });
 
-// Launch Bot
-bot.launch({
-    allowedUpdates: ['message', 'callback_query'],
-    dropPendingUpdates: true
-})
-.then(() => {
-    console.log("=========================================");
-    console.log("🚀 Bot is running smoothly with Safe Chunking!");
-    console.log("=========================================");
-})
-.catch((error) => {
-    console.error("❌ Failed to start the bot:", error.message);
-});
-
-// DUMMY SERVER FOR RENDER PORT BINDING
+// DUMMY SERVER DURSITTI KA'U QAABA (Render Port Binding Fix)
 const PORT = process.env.PORT || 3000;
 http.createServer((req, res) => {
     res.writeHead(200, { 'Content-Type': 'text/plain' });
-    res.end('Bot is alive!\n');
+    res.end('Bot is alive and healthy!\n');
 }).listen(PORT, () => {
     console.log(`Dummy server is listening on port ${PORT}`);
+    
+    // Server-ri erga ka'ee booda bot-ni ofumaan ka'a
+    bot.launch({
+        allowedUpdates: ['message', 'callback_query'],
+        dropPendingUpdates: true
+    })
+    .then(() => {
+        console.log("🚀 Telegram Bot successfully launched after Port bind!");
+    })
+    .catch((error) => {
+        console.error("❌ Failed to start the bot:", error.message);
+    });
 });
 
 process.once('SIGINT', () => bot.stop('SIGINT'));
