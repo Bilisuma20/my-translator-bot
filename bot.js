@@ -3,29 +3,22 @@ const axios = require('axios');
 const http = require('http');
 const mammoth = require('mammoth');
 
-// Your Telegram Bot Token
 const BOT_TOKEN = '8624502955:AAEFg7RM8Nrz_--TU1q9gBtmAbX_v-4CuQc';
 const bot = new Telegraf(BOT_TOKEN, {
     handlerTimeout: 120000
 });
 
-// List of languages
+// Afaanota madaalawaa fi gabaabaa ta'an (Button keessatti callback data akka hin gurguddateef)
 const languages = {
-    'af': 'Afrikaans', 'sq': 'Albanian', 'am': 'Amharic', 'ar': 'Arabic', 
-    'bn': 'Bengali', 'zh-CN': 'Chinese (Simp)', 'zh-TW': 'Chinese (Trad)', 
-    'hr': 'Croatian', 'cs': 'Czech', 'da': 'Danish', 'nl': 'Dutch', 
-    'en': 'English', 'eo': 'Esperanto', 'fi': 'Finnish', 'fr': 'French', 
-    'de': 'German', 'el': 'Greek', 'hi': 'Hindi', 'hu': 'Hungarian', 
-    'id': 'Indonesian', 'it': 'Italian', 'ja': 'Japanese', 'ko': 'Korean', 
-    'om': 'Oromo', 'fa': 'Persian', 'pl': 'Polish', 'pt': 'Portuguese', 
-    'ro': 'Romanian', 'ru': 'Russian', 'es': 'Spanish', 'sw': 'Swahili', 
-    'sv': 'Swedish', 'th': 'Thai', 'tr': 'Turkish', 'uk': 'Ukrainian', 
-    'vi': 'Violetnamese'
+    'af': 'Afrikaans', 'am': 'Amharic', 'ar': 'Arabic', 'en': 'English', 
+    'fr': 'French', 'de': 'German', 'hi': 'Hindi', 'it': 'Italian', 
+    'ja': 'Japanese', 'ko': 'Korean', 'om': 'Oromo', 'ru': 'Russian', 
+    'es': 'Spanish', 'sw': 'Swahili', 'tr': 'Turkish'
 };
 
-const messageSessions = {};
+// Kuusaa memory yeroo gabaabaaf eegu
+let userTexts = {};
 
-// Barreeffama bifa salphaan amansiisaa ta'een addaan kutuuf
 function splitTextIntoSafeChunks(text, chunkSize = 1000) {
     const chunks = [];
     let i = 0;
@@ -36,7 +29,6 @@ function splitTextIntoSafeChunks(text, chunkSize = 1000) {
     return chunks;
 }
 
-// Translation Function
 async function translateText(text, toLang) {
     try {
         const cleanedText = text.replace(/[\r\n]+/g, ' ').trim();
@@ -45,23 +37,19 @@ async function translateText(text, toLang) {
 
         for (const chunk of chunks) {
             if (!chunk.trim()) continue;
-
             const url = `https://translate.googleapis.com/translate_a/single?client=gtx&sl=auto&tl=${toLang}&dt=t&q=${encodeURIComponent(chunk)}`;
             const response = await axios.get(url, { timeout: 10000 });
             
             if (response.data && response.data[0]) {
                 response.data[0].forEach(sentence => {
-                    if (sentence[0]) {
-                        finalTranslatedText += sentence[0] + " ";
-                    }
+                    if (sentence[0]) finalTranslatedText += sentence[0] + " ";
                 });
             }
-            await new Promise(resolve => setTimeout(resolve, 500));
+            await new Promise(resolve => setTimeout(resolve, 300));
         }
         return finalTranslatedText.trim() || "No translation found.";
     } catch (error) {
-        console.error("Translation Error Details:", error.response ? error.response.status : error.message);
-        return "Translation failed due to formatting or size. Please try with smaller text.";
+        return "Translation failed. Please try again.";
     }
 }
 
@@ -70,32 +58,22 @@ function getLanguageButtons() {
     const langKeys = Object.keys(languages);
     for (let i = 0; i < langKeys.length; i += 3) {
         const row = [];
-        if (langKeys[i]) row.push(Markup.button.callback(languages[langKeys[i]], `lang_${langKeys[i]}`));
-        if (langKeys[i+1]) row.push(Markup.button.callback(languages[langKeys[i+1]], `lang_${langKeys[i+1]}`));
-        if (langKeys[i+2]) row.push(Markup.button.callback(languages[langKeys[i+2]], `lang_${langKeys[i+2]}`));
+        if (langKeys[i]) row.push(Markup.button.callback(languages[langKeys[i]], `to_${langKeys[i]}`));
+        if (langKeys[i+1]) row.push(Markup.button.callback(languages[langKeys[i+1]], `to_${langKeys[i+1]}`));
+        if (langKeys[i+2]) row.push(Markup.button.callback(languages[langKeys[i+2]], `to_${langKeys[i+2]}`));
         buttons.push(row);
     }
     return Markup.inlineKeyboard(buttons);
 }
 
-bot.start(async (ctx) => {
-    try {
-        await ctx.reply("Welcome! Send me any text or upload a '.txt' or '.docx' (Word) file, and I will show you buttons to choose the target language.");
-    } catch (e) {
-        console.error("Start command error:", e.message);
-    }
+bot.start((ctx) => {
+    ctx.reply("Welcome! Send me any text or upload a '.txt' or '.docx' file, then choose a language.");
 });
 
 bot.on('text', async (ctx) => {
-    try {
-        const chatId = ctx.chat.id;
-        const userText = ctx.message.text;
-        const sentMessage = await ctx.reply("Please select the language you want to translate the text to:", getLanguageButtons());
-        const sessionKey = `${chatId}_${sentMessage.message_id}`;
-        messageSessions[sessionKey] = userText;
-    } catch (e) {
-        console.error("Text handling error:", e.message);
-    }
+    const chatId = ctx.chat.id;
+    userTexts[chatId] = ctx.message.text; // Chat ID qofaan kuusuu (amansiisaadha)
+    await ctx.reply("Select target language:", getLanguageButtons());
 });
 
 bot.on('document', async (ctx) => {
@@ -104,91 +82,65 @@ bot.on('document', async (ctx) => {
         const doc = ctx.message.document;
         const fileName = doc.file_name.toLowerCase();
 
-        await ctx.reply("Reading your file... ⏳");
+        await ctx.reply("Reading file... ⏳");
         const fileLink = await ctx.telegram.getFileLink(doc.file_id);
-
         let fileContent = "";
 
         if (doc.mime_type === 'text/plain' || fileName.endsWith('.txt')) {
             const fileResponse = await axios.get(fileLink.href);
             fileContent = fileResponse.data.toString();
-        } 
-        else if (fileName.endsWith('.docx')) {
+        } else if (fileName.endsWith('.docx')) {
             const fileResponse = await axios.get(fileLink.href, { responseType: 'arraybuffer' });
             const buffer = Buffer.from(fileResponse.data);
             const result = await mammoth.extractRawText({ buffer: buffer });
             fileContent = result.value;
-        } 
-        else {
-            return ctx.reply("Please upload valid '.txt' or '.docx' (Word) files only.");
+        } else {
+            return ctx.reply("Please upload '.txt' or '.docx' files only.");
         }
 
-        if (!fileContent.trim()) {
-            return ctx.reply("Your file appears to be empty!");
-        }
+        if (!fileContent.trim()) return ctx.reply("File is empty!");
 
-        const sentMessage = await ctx.reply(`File "${doc.file_name}" received successfully!\n\nPlease select the language you want to translate to:`, getLanguageButtons());
-        const sessionKey = `${chatId}_${sentMessage.message_id}`;
-        messageSessions[sessionKey] = fileContent;
-
+        userTexts[chatId] = fileContent;
+        await ctx.reply(`File received! Select language:`, getLanguageButtons());
     } catch (e) {
-        console.error("Document handling error:", e.message);
-        ctx.reply("An error occurred while reading the file. Make sure it's a valid text or docx file.");
+        ctx.reply("Error reading file.");
     }
 });
 
-bot.action(/^lang_(.+)$/, async (ctx) => {
+bot.action(/^to_(.+)$/, async (ctx) => {
     try {
         const targetLang = ctx.match[1];
-        const targetLangName = languages[targetLang];
         const chatId = ctx.chat.id;
-        const messageId = ctx.callbackQuery.message.message_id;
-        const sessionKey = `${chatId}_${messageId}`;
-        const savedContent = messageSessions[sessionKey];
+        const savedContent = userTexts[chatId];
 
         if (!savedContent) {
-            return ctx.reply("Session expired or text not found. Please send a new text or file.");
+            return ctx.reply("Session expired. Please send the text or file again.");
         }
 
-        await ctx.answerCbQuery(`Translating to ${targetLangName}...`);
-        await ctx.editMessageText(`Translating content to ${targetLangName}... ⏳`);
+        await ctx.answerCbQuery("Translating...");
+        await ctx.editMessageText("Translating... ⏳");
 
         const translatedResult = await translateText(savedContent, targetLang);
         
         const responseChunks = splitTextIntoSafeChunks(translatedResult, 3500);
         for (const chunk of responseChunks) {
-            await ctx.reply(`📝 **Translation (${targetLangName}):**\n\n${chunk}`);
+            await ctx.reply(`📝 **Translation:**\n\n${chunk}`);
         }
-        
-        delete messageSessions[sessionKey];
     } catch (e) {
-        console.error("Button action error:", e.message);
+        console.error(e.message);
     }
 });
 
-bot.catch((err, ctx) => {
-    console.error(`Bot encountered an error for ${ctx.updateType}:`, err.message);
-});
-
-// DUMMY SERVER DURSITTI KA'U QAABA (Render Port Binding Fix)
+// Dummy Server Fix for Render
 const PORT = process.env.PORT || 3000;
 http.createServer((req, res) => {
     res.writeHead(200, { 'Content-Type': 'text/plain' });
-    res.end('Bot is alive and healthy!\n');
+    res.end('Bot is alive!\n');
 }).listen(PORT, () => {
-    console.log(`Dummy server is listening on port ${PORT}`);
-    
-    // Server-ri erga ka'ee booda bot-ni ofumaan ka'a
-    bot.launch({
-        allowedUpdates: ['message', 'callback_query'],
-        dropPendingUpdates: true
-    })
-    .then(() => {
-        console.log("🚀 Telegram Bot successfully launched after Port bind!");
-    })
-    .catch((error) => {
-        console.error("❌ Failed to start the bot:", error.message);
-    });
+    console.log(`Server listening on port ${PORT}`);
+    bot.launch({ allowedUpdates: ['message', 'callback_query'], dropPendingUpdates: true })
+       .then(() => console.log("Bot launched!"))
+       .catch((err) => console.error(err.message));
 });
 
 process.once('SIGINT', () => bot.stop('SIGINT'));
