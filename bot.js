@@ -5,7 +5,7 @@ const mammoth = require('mammoth');
 const { Document, Packer, Paragraph, TextRun } = require('docx');
 const Tesseract = require('tesseract.js'); // Kallattii suuraa dubbisuuf dabalame
 
-const BOT_TOKEN = '8624502955:AAEFg7RM8Nrz_--TU1q9gBtmAbX_v-4CuQc';
+const BOT_TOKEN = '8624502955:AAHFHcQv2P67UKv8-4BRlnei_EC_-5Mfxfs';
 const bot = new Telegraf(BOT_TOKEN, {
     handlerTimeout: 120000
 });
