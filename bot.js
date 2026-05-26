@@ -3,11 +3,12 @@ const axios = require('axios');
 const http = require('http');
 const mammoth = require('mammoth');
 const { Document, Packer, Paragraph, TextRun } = require('docx');
-const Tesseract = require('tesseract.js'); // Kallattii suuraa dubbisuuf dabalame
+const Tesseract = require('tesseract.js');
 
+// Gadi-lakkisaa (⚠️ Token kee nama biraatiin akka hin argamne of eeggadhurru)
 const BOT_TOKEN = '8624502955:AAHFHcQv2P67UKv8-4BRlnei_EC_-5Mfxfs';
 const bot = new Telegraf(BOT_TOKEN, {
-    handlerTimeout: 120000
+    handlerTimeout: 300000 // Timeout gara daqiiqaa 5tti ol guddifneerra akka bot-ni hin dhiifne
 });
 
 const languages = {
@@ -25,7 +26,8 @@ const languages = {
 
 let userTexts = {};
 
-function splitTextIntoSafeChunks(text, chunkSize = 1000) {
+// Fuula 200 saffisaan hojjechuuf chunk size 3000 gooneerra
+function splitTextIntoSafeChunks(text, chunkSize = 3000) {
     const chunks = [];
     let i = 0;
     while (i < text.length) {
@@ -35,25 +37,34 @@ function splitTextIntoSafeChunks(text, chunkSize = 1000) {
     return chunks;
 }
 
+// Chunks hunda yeroo tokkotti parallel erguuf kan jijjiurame
 async function translateText(text, toLang) {
     try {
         const cleanedText = text.replace(/[\r\n]+/g, ' ').trim();
-        const chunks = splitTextIntoSafeChunks(cleanedText, 1000);
-        let finalTranslatedText = "";
-
-        for (const chunk of chunks) {
-            if (!chunk.trim()) continue;
+        const chunks = splitTextIntoSafeChunks(cleanedText, 3000);
+        
+        // Request hunda yeroo tokkotti uumna
+        const promises = chunks.map(async (chunk) => {
+            if (!chunk.trim()) return "";
             const url = `https://translate.googleapis.com/translate_a/single?client=gtx&sl=auto&tl=${toLang}&dt=t&q=${encodeURIComponent(chunk)}`;
-            const response = await axios.get(url, { timeout: 10000 });
-            
-            if (response.data && response.data[0]) {
-                response.data[0].forEach(sentence => {
-                    if (sentence[0]) finalTranslatedText += sentence[0] + " ";
-                });
+            try {
+                const response = await axios.get(url, { timeout: 15000 });
+                let chunkTranslated = "";
+                if (response.data && response.data[0]) {
+                    response.data[0].forEach(sentence => {
+                        if (sentence[0]) chunkTranslated += sentence[0] + " ";
+                    });
+                }
+                return chunkTranslated;
+            } catch (err) {
+                // Yoo API bilisaa sun rate limit kenne, barruu calqabaa gadi lakkisa (akka hin badneef)
+                return chunk; 
             }
-            await new Promise(resolve => setTimeout(resolve, 300));
-        }
-        return finalTranslatedText.trim() || "No translation found.";
+        });
+
+        // Hunda isaanii wal-bira qabnee sekondii muraasa keessatti eegna
+        const translatedChunks = await Promise.all(promises);
+        return translatedChunks.join(" ").trim() || "No translation found.";
     } catch (error) {
         return "Translation failed. Please try again.";
     }
@@ -85,32 +96,22 @@ bot.on('text', async (ctx) => {
     await ctx.reply("Select target language:", getLanguageButtons());
 });
 
-// KAN HAARAA: Suuraa fudhatee barruu isaa keessaa dubbisuuf
 bot.on('photo', async (ctx) => {
     try {
         const chatId = ctx.chat.id;
         await ctx.reply("Reading text from image... 🔍⏳");
-
-        // Suuraa isa qulqullina guddaa qabu fudhanna
         const photo = ctx.message.photo[ctx.message.photo.length - 1];
         const fileLink = await ctx.telegram.getFileLink(photo.file_id);
-
-        // Tesseract fayyadamnee suuraa irraa barruu baasna
-        const { data: { text } } = await Tesseract.recognize(fileLink.href, 'eng+ara+fra'); // English, Arabic, French natti dabaleera
+        const { data: { text } } = await Tesseract.recognize(fileLink.href, 'eng+ara+fra');
 
         if (!text || !text.trim()) {
-            return ctx.reply("Could not detect any clear text in the image. Please try with a clearer photo.");
+            return ctx.reply("Could not detect any clear text in the image.");
         }
 
-        userTexts[chatId] = {
-            type: 'text', // Akka text nornal-itti erga hiikee booda akka deebisuuf
-            content: text
-        };
-
+        userTexts[chatId] = { type: 'text', content: text };
         await ctx.reply(`Text detected! Select language:`, getLanguageButtons());
     } catch (e) {
-        console.error(e.message);
-        ctx.reply("Error processing image. Make sure the text is clear.");
+        ctx.reply("Error processing image.");
     }
 });
 
@@ -141,10 +142,7 @@ bot.on('document', async (ctx) => {
 
         if (!fileContent.trim()) return ctx.reply("File is empty!");
 
-        userTexts[chatId] = {
-            type: fileType,
-            content: fileContent
-        };
+        userTexts[chatId] = { type: fileType, content: fileContent };
         await ctx.reply(`File received! Select language:`, getLanguageButtons());
     } catch (e) {
         ctx.reply("Error reading file.");
@@ -158,35 +156,32 @@ bot.action(/^to_(.+)$/, async (ctx) => {
         const session = userTexts[chatId];
 
         if (!session || !session.content) {
-            return ctx.reply("Session expired. Please send the text or file again.");
+            return ctx.reply("Session expired. Please send the file again.");
         }
 
         await ctx.answerCbQuery("Translating...");
-        await ctx.editMessageText("Translating... ⏳");
+        await ctx.editMessageText("Translating your document, please wait... ⏳");
 
+        // Asynchronous parallel translation
         const translatedResult = await translateText(session.content, targetLang);
         
         if (session.type === 'docx') {
             await ctx.reply("Generating .docx file... 📄");
             
+            // Barruu guutuu fuula 200 san paragraph tokko keessatti akka hin kuusneef line-by-line addaan baasna
+            const lines = translatedResult.split('. ');
+            const paragraphs = lines.map(line => new Paragraph({
+                children: [new TextRun({ text: line + ". ", size: 24 })]
+            }));
+
             const doc = new Document({
                 sections: [{
                     properties: {},
-                    children: [
-                        new Paragraph({
-                            children: [
-                                new TextRun({
-                                    text: translatedResult,
-                                    size: 24,
-                                }),
-                            ],
-                        }),
-                    ],
+                    children: paragraphs,
                 }],
             });
 
             const buffer = await Packer.toBuffer(doc);
-            
             await ctx.replyWithDocument({
                 source: buffer,
                 filename: `Translated_${languages[targetLang]}.docx`
@@ -199,10 +194,9 @@ bot.action(/^to_(.+)$/, async (ctx) => {
         }
         
         delete userTexts[chatId];
-
     } catch (e) {
         console.error(e.message);
-        ctx.reply("An error occurred during translation or file creation.");
+        ctx.reply("An error occurred during translation.");
     }
 });
 
