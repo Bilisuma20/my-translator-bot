@@ -2,13 +2,14 @@ const { Telegraf, Markup } = require('telegraf');
 const axios = require('axios');
 const http = require('http');
 const mammoth = require('mammoth');
+const { Document, Packer, Paragraph, TextRun } = require('docx'); // Faayilii Word uumuuf
 
 const BOT_TOKEN = '8624502955:AAEFg7RM8Nrz_--TU1q9gBtmAbX_v-4CuQc';
 const bot = new Telegraf(BOT_TOKEN, {
     handlerTimeout: 120000
 });
 
-// Afaanota madaalawaa fi gabaabaa ta'an (Button keessatti callback data akka hin gurguddateef)
+// Afaanota madaalawaa fi gabaabaa ta'an
 const languages = {
     'af': 'Afrikaans', 'am': 'Amharic', 'ar': 'Arabic', 'en': 'English', 
     'fr': 'French', 'de': 'German', 'hi': 'Hindi', 'it': 'Italian', 
@@ -72,7 +73,10 @@ bot.start((ctx) => {
 
 bot.on('text', async (ctx) => {
     const chatId = ctx.chat.id;
-    userTexts[chatId] = ctx.message.text; // Chat ID qofaan kuusuu (amansiisaadha)
+    userTexts[chatId] = {
+        type: 'text',
+        content: ctx.message.text
+    };
     await ctx.reply("Select target language:", getLanguageButtons());
 });
 
@@ -85,22 +89,28 @@ bot.on('document', async (ctx) => {
         await ctx.reply("Reading file... ⏳");
         const fileLink = await ctx.telegram.getFileLink(doc.file_id);
         let fileContent = "";
+        let fileType = "";
 
         if (doc.mime_type === 'text/plain' || fileName.endsWith('.txt')) {
             const fileResponse = await axios.get(fileLink.href);
             fileContent = fileResponse.data.toString();
+            fileType = 'txt';
         } else if (fileName.endsWith('.docx')) {
             const fileResponse = await axios.get(fileLink.href, { responseType: 'arraybuffer' });
             const buffer = Buffer.from(fileResponse.data);
             const result = await mammoth.extractRawText({ buffer: buffer });
             fileContent = result.value;
+            fileType = 'docx';
         } else {
             return ctx.reply("Please upload '.txt' or '.docx' files only.");
         }
 
         if (!fileContent.trim()) return ctx.reply("File is empty!");
 
-        userTexts[chatId] = fileContent;
+        userTexts[chatId] = {
+            type: fileType,
+            content: fileContent
+        };
         await ctx.reply(`File received! Select language:`, getLanguageButtons());
     } catch (e) {
         ctx.reply("Error reading file.");
@@ -111,23 +121,57 @@ bot.action(/^to_(.+)$/, async (ctx) => {
     try {
         const targetLang = ctx.match[1];
         const chatId = ctx.chat.id;
-        const savedContent = userTexts[chatId];
+        const session = userTexts[chatId];
 
-        if (!savedContent) {
+        if (!session || !session.content) {
             return ctx.reply("Session expired. Please send the text or file again.");
         }
 
         await ctx.answerCbQuery("Translating...");
         await ctx.editMessageText("Translating... ⏳");
 
-        const translatedResult = await translateText(savedContent, targetLang);
+        const translatedResult = await translateText(session.content, targetLang);
         
-        const responseChunks = splitTextIntoSafeChunks(translatedResult, 3500);
-        for (const chunk of responseChunks) {
-            await ctx.reply(`📝 **Translation:**\n\n${chunk}`);
+        // Yoo gostiin faayilii 'docx' ta'e, faayilii .docx uumnee deebisna
+        if (session.type === 'docx') {
+            await ctx.reply("Generating .docx file... 📄");
+            
+            const doc = new Document({
+                sections: [{
+                    properties: {},
+                    children: [
+                        new Paragraph({
+                            children: [
+                                new TextRun({
+                                    text: translatedResult,
+                                    size: 24, // font size 12pt
+                                }),
+                            ],
+                        }),
+                    ],
+                }],
+            });
+
+            const buffer = await Packer.toBuffer(doc);
+            
+            await ctx.replyWithDocument({
+                source: buffer,
+                filename: `Translated_${languages[targetLang]}.docx`
+            });
+        } else {
+            // Yoo barreeffama caasaa ykn .txt ta'e akkuma duraanitti text dhaan erga
+            const responseChunks = splitTextIntoSafeChunks(translatedResult, 3500);
+            for (const chunk of responseChunks) {
+                await ctx.reply(`📝 **Translation (${languages[targetLang]}):**\n\n${chunk}`);
+            }
         }
+        
+        // Memory akka hin guunneef erga xumuramee booda qulqulleessuu
+        delete userTexts[chatId];
+
     } catch (e) {
         console.error(e.message);
+        ctx.reply("An error occurred during translation or file creation.");
     }
 });
 
