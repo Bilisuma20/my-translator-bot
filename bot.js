@@ -3,21 +3,18 @@ const axios = require('axios');
 const http = require('http');
 const mammoth = require('mammoth');
 const { Document, Packer, Paragraph, TextRun } = require('docx');
+const Tesseract = require('tesseract.js'); // Kallattii suuraa dubbisuuf dabalame
 
 const BOT_TOKEN = '8624502955:AAEFg7RM8Nrz_--TU1q9gBtmAbX_v-4CuQc';
 const bot = new Telegraf(BOT_TOKEN, {
     handlerTimeout: 120000
 });
 
-// Afaanota duraan turan osoo hin tuqin kanneen dabalataa baay'ee itti dabamaniiru
 const languages = {
-    // Kanneen duraan turan
     'af': 'Afrikaans', 'am': 'Amharic', 'ar': 'Arabic', 'en': 'English', 
     'fr': 'French', 'de': 'German', 'hi': 'Hindi', 'it': 'Italian', 
     'ja': 'Japanese', 'ko': 'Korean', 'om': 'Oromo', 'ru': 'Russian', 
     'es': 'Spanish', 'sw': 'Swahili', 'tr': 'Turkish',
-    
-    // Kanneen haaraa itti dabalaman (Afaanota beekamoo fi naannoo keenyaa)
     'so': 'Somali', 'ti': 'Tigrinya', 'zh': 'Chinese', 'pt': 'Portuguese',
     'nl': 'Dutch', 'sv': 'Swedish', 'no': 'Norwegian', 'fi': 'Finnish',
     'da': 'Danish', 'pl': 'Polish', 'uk': 'Ukrainian', 'id': 'Indonesian',
@@ -26,7 +23,6 @@ const languages = {
     'te': 'Telugu', 'ta': 'Tamil', 'eo': 'Esperanto', 'la': 'Latin'
 };
 
-// Kuusaa memory yeroo gabaabaaf eegu
 let userTexts = {};
 
 function splitTextIntoSafeChunks(text, chunkSize = 1000) {
@@ -63,7 +59,6 @@ async function translateText(text, toLang) {
     }
 }
 
-// Button afaanotaa sarara tokko irratti sadi sadiin (3) akka ba'u gochuuf
 function getLanguageButtons() {
     const buttons = [];
     const langKeys = Object.keys(languages);
@@ -78,7 +73,7 @@ function getLanguageButtons() {
 }
 
 bot.start((ctx) => {
-    ctx.reply("Welcome! Send me any text or upload a '.txt' or '.docx' file, then choose a language.");
+    ctx.reply("Welcome! Send me text, upload a '.txt'/'.docx' file, or send an Image, then choose a language.");
 });
 
 bot.on('text', async (ctx) => {
@@ -88,6 +83,35 @@ bot.on('text', async (ctx) => {
         content: ctx.message.text
     };
     await ctx.reply("Select target language:", getLanguageButtons());
+});
+
+// KAN HAARAA: Suuraa fudhatee barruu isaa keessaa dubbisuuf
+bot.on('photo', async (ctx) => {
+    try {
+        const chatId = ctx.chat.id;
+        await ctx.reply("Reading text from image... 🔍⏳");
+
+        // Suuraa isa qulqullina guddaa qabu fudhanna
+        const photo = ctx.message.photo[ctx.message.photo.length - 1];
+        const fileLink = await ctx.telegram.getFileLink(photo.file_id);
+
+        // Tesseract fayyadamnee suuraa irraa barruu baasna
+        const { data: { text } } = await Tesseract.recognize(fileLink.href, 'eng+ara+fra'); // English, Arabic, French natti dabaleera
+
+        if (!text || !text.trim()) {
+            return ctx.reply("Could not detect any clear text in the image. Please try with a clearer photo.");
+        }
+
+        userTexts[chatId] = {
+            type: 'text', // Akka text nornal-itti erga hiikee booda akka deebisuuf
+            content: text
+        };
+
+        await ctx.reply(`Text detected! Select language:`, getLanguageButtons());
+    } catch (e) {
+        console.error(e.message);
+        ctx.reply("Error processing image. Make sure the text is clear.");
+    }
 });
 
 bot.on('document', async (ctx) => {
