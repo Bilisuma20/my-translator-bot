@@ -2,19 +2,28 @@ const { Telegraf, Markup } = require('telegraf');
 const axios = require('axios');
 const http = require('http');
 const mammoth = require('mammoth');
-const { Document, Packer, Paragraph, TextRun } = require('docx'); // Faayilii Word uumuuf
+const { Document, Packer, Paragraph, TextRun } = require('docx');
 
 const BOT_TOKEN = '8624502955:AAEFg7RM8Nrz_--TU1q9gBtmAbX_v-4CuQc';
 const bot = new Telegraf(BOT_TOKEN, {
     handlerTimeout: 120000
 });
 
-// Afaanota madaalawaa fi gabaabaa ta'an
+// Afaanota duraan turan osoo hin tuqin kanneen dabalataa baay'ee itti dabamaniiru
 const languages = {
+    // Kanneen duraan turan
     'af': 'Afrikaans', 'am': 'Amharic', 'ar': 'Arabic', 'en': 'English', 
     'fr': 'French', 'de': 'German', 'hi': 'Hindi', 'it': 'Italian', 
     'ja': 'Japanese', 'ko': 'Korean', 'om': 'Oromo', 'ru': 'Russian', 
-    'es': 'Spanish', 'sw': 'Swahili', 'tr': 'Turkish'
+    'es': 'Spanish', 'sw': 'Swahili', 'tr': 'Turkish',
+    
+    // Kanneen haaraa itti dabalaman (Afaanota beekamoo fi naannoo keenyaa)
+    'so': 'Somali', 'ti': 'Tigrinya', 'zh': 'Chinese', 'pt': 'Portuguese',
+    'nl': 'Dutch', 'sv': 'Swedish', 'no': 'Norwegian', 'fi': 'Finnish',
+    'da': 'Danish', 'pl': 'Polish', 'uk': 'Ukrainian', 'id': 'Indonesian',
+    'ms': 'Malay', 'vi': 'Vietnamese', 'th': 'Thai', 'fa': 'Persian',
+    'he': 'Hebrew', 'ur': 'Urdu', 'bn': 'Bengali', 'pa': 'Punjabi',
+    'te': 'Telugu', 'ta': 'Tamil', 'eo': 'Esperanto', 'la': 'Latin'
 };
 
 // Kuusaa memory yeroo gabaabaaf eegu
@@ -54,6 +63,7 @@ async function translateText(text, toLang) {
     }
 }
 
+// Button afaanotaa sarara tokko irratti sadi sadiin (3) akka ba'u gochuuf
 function getLanguageButtons() {
     const buttons = [];
     const langKeys = Object.keys(languages);
@@ -132,7 +142,6 @@ bot.action(/^to_(.+)$/, async (ctx) => {
 
         const translatedResult = await translateText(session.content, targetLang);
         
-        // Yoo gostiin faayilii 'docx' ta'e, faayilii .docx uumnee deebisna
         if (session.type === 'docx') {
             await ctx.reply("Generating .docx file... 📄");
             
@@ -144,7 +153,7 @@ bot.action(/^to_(.+)$/, async (ctx) => {
                             children: [
                                 new TextRun({
                                     text: translatedResult,
-                                    size: 24, // font size 12pt
+                                    size: 24,
                                 }),
                             ],
                         }),
@@ -159,14 +168,12 @@ bot.action(/^to_(.+)$/, async (ctx) => {
                 filename: `Translated_${languages[targetLang]}.docx`
             });
         } else {
-            // Yoo barreeffama caasaa ykn .txt ta'e akkuma duraanitti text dhaan erga
             const responseChunks = splitTextIntoSafeChunks(translatedResult, 3500);
             for (const chunk of responseChunks) {
                 await ctx.reply(`📝 **Translation (${languages[targetLang]}):**\n\n${chunk}`);
             }
         }
         
-        // Memory akka hin guunneef erga xumuramee booda qulqulleessuu
         delete userTexts[chatId];
 
     } catch (e) {
@@ -175,7 +182,6 @@ bot.action(/^to_(.+)$/, async (ctx) => {
     }
 });
 
-// Dummy Server Fix for Render
 const PORT = process.env.PORT || 3000;
 http.createServer((req, res) => {
     res.writeHead(200, { 'Content-Type': 'text/plain' });
